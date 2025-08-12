@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
@@ -29,23 +30,26 @@ public class SyncController {
     @Operation(summary = "Upload change logs (idempotent by per-item key)")
     @PostMapping("/upload-logs")
     public ResponseEntity<UploadLogsResponse> uploadLogs(
+            Authentication auth,
             @RequestHeader(name = "Idempotency-Key", required = false) String batchIdempotencyKey,
             @Valid @RequestBody UploadLogsRequest request
     ) {
-        var resp = syncService.uploadLogs(request, request.batchId(), batchIdempotencyKey);
+        UUID userId = (UUID) auth.getPrincipal();
+        var resp = syncService.uploadLogs(userId, request, request.batchId(), batchIdempotencyKey);
         return ResponseEntity.ok(resp);
     }
 
     @Operation(summary = "Pull server→device changes (entitlements/progress/content)")
     @GetMapping("/pull-progress")
     public ResponseEntity<PullProgressV1> pullProgress(
-            @RequestParam("userId") UUID userId,
+            Authentication auth,
             @RequestParam(value = "since", required = false) OffsetDateTime since,
             @RequestParam(value = "include", required = false, defaultValue = "entitlements,content") String includeCsv,
             @RequestParam(value = "activeOnly", required = false, defaultValue = "true") boolean activeOnly,
             @RequestParam(value = "domain", required = false, defaultValue = "JLPT") String domain,
-            @RequestParam(value = "level",  required = false, defaultValue = "N5") String level
+            @RequestParam(value = "level",  required = false, defaultValue = "N5")   String level
     ) {
+        UUID userId = (UUID) auth.getPrincipal();
         var include = new HashSet<>(Arrays.asList(includeCsv.toLowerCase().split(",")));
         var resp = pullProgressService.pull(userId, since, activeOnly, include, domain, level);
         return ResponseEntity.ok(resp);

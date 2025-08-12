@@ -1,34 +1,115 @@
+# =========================
+# Common (default profile)
+# =========================
+server:
+  port: 8080
+
 spring:
   application:
     name: JLPT Companion
+
+  # --- DataSource (PostgreSQL) ---
   datasource:
-    url: jdbc:postgresql://localhost:5432/jlptcompanion
-    username: jlpt_user
-    password: jlpt_pass
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:jlptcompanion}
+    username: ${DB_USER:jlpt}
+    password: ${DB_PASS:jlpt}
+
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  # --- JPA/Hibernate ---
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: none         # pakai Flyway untuk schema
+    open-in-view: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-    show-sql: true
+        jdbc:
+          time_zone: UTC     # simpan waktu di DB sebagai UTC
+        show_sql: true
+        format_sql: false
+
+  # --- Flyway ---
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # baseline-on-migrate: true    # gunakan hanya jika schema sudah berisi tabel tanpa history
+    # baseline-version: 0
+
+  # --- Redis (Spring Data Redis) ---
   data:
     redis:
-      host: localhost
-      port: 6379
-      # password: your_redis_password # for prod
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # password: # use in prod
+      timeout: 2s
+
+# --- Jackson (global) ---
+# (Kita juga sudah ada JacksonConfig yang register JavaTimeModule)
+  jackson:
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: false
+    deserialization:
+      FAIL_ON_UNKNOWN_PROPERTIES: false
+
+# --- Springdoc / Swagger ---
 springdoc:
   api-docs:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
 
+# --- Actuator (observability dasar) ---
 management:
-  endpoints.web.exposure.include: health,info
-  endpoint.health.show-details: when_authorized
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
 
-server:
-  port: 8080
+# --- App custom config (JWT) ---
+app:
+  jwt:
+    issuer: "jlpt-companion"
+    secret: "${JWT_SECRET:dev-secret-change-me}"   # ganti via ENV di prod
+    access-exp-minutes: 30
+    refresh-exp-days: 30
+
+# =========================
+# DEV profile overrides
+# =========================
+#---
+#spring:
+#  config:
+#    activate:
+#      on-profile: dev
+#
+#logging:
+#  level:
+#    root: INFO
+#    org.springframework.web: INFO
+#    org.hibernate.SQL: DEBUG            # matikan jika kebanyakan log
+#    org.hibernate.type.descriptor.sql: TRACE
+#
+#spring:
+#  jpa:
+#    properties:
+#      hibernate:
+#        show_sql: true
+#        format_sql: true
+#
+## Swagger UI aktif di dev (sudah default, ditulis eksplisit untuk kejelasan)
+#springdoc:
+#  swagger-ui:
+#    enabled: true
+#
+## Actuator bisa dibuka lebih lebar di dev
+#management:
+#  endpoints:
+#    web:
+#      exposure:
+#        include: "*"                    # dev only

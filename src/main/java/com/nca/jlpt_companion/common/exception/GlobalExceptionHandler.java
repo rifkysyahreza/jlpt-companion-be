@@ -3,7 +3,6 @@ package com.nca.jlpt_companion.common.exception;
 import com.nca.jlpt_companion.common.dto.ApiError;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.MDC;
-import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -29,14 +28,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex, ServletWebRequest req) {
-        List<ApiError.FieldErrorItem> fields = ex.getBindingResult().getFieldErrors().stream()
-                .map(fe -> new ApiError.FieldErrorItem(fe.getField(), fe.getDefaultMessage()))
+        List<ApiError.FieldErrorItem> fieldErrors = ex.getBindingResult().getFieldErrors().stream()
+                .map(e -> new ApiError.FieldErrorItem(e.getField(), e.getDefaultMessage()))
                 .toList();
-        String msg = ex.getBindingResult().getAllErrors().stream()
-                .findFirst().map(DefaultMessageSourceResolvable::getDefaultMessage)
-                .orElse("Validation error");
-        var body = ApiError.of(HttpStatus.BAD_REQUEST, msg, path(req), traceId(), fields);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+
+        return ResponseEntity.badRequest().body(
+                ApiError.of(HttpStatus.BAD_REQUEST, "Validation error", req.getRequest().getRequestURI(),
+                        traceId(), fieldErrors)
+        );
     }
 
     @ExceptionHandler({
@@ -62,10 +61,31 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex, ServletWebRequest req) {
+        return ResponseEntity.badRequest().body(
+                ApiError.of(HttpStatus.BAD_REQUEST, ex.getMessage(), req.getRequest().getRequestURI(), traceId())
+        );
+    }
+
+    @ExceptionHandler(AppExceptions.ConflictException.class)
+    public ResponseEntity<ApiError> handleConflict(AppExceptions.ConflictException ex, ServletWebRequest req) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                ApiError.of(HttpStatus.CONFLICT, ex.getMessage(), req.getRequest().getRequestURI(), traceId())
+        );
+    }
+
+    @ExceptionHandler(AppExceptions.AuthFailedException.class)
+    public ResponseEntity<ApiError> handleAuthFailed(AppExceptions.AuthFailedException ex, ServletWebRequest req) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                ApiError.of(HttpStatus.UNAUTHORIZED, ex.getMessage(), req.getRequest().getRequestURI(), traceId())
+        );
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGeneral(Exception ex, ServletWebRequest req) {
-        // LOG details for internal (stacktrace), but DO NOT expose to client
-        var body = ApiError.of(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", path(req), traceId());
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiError.of(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), req.getRequest().getRequestURI(), traceId())
+        );
     }
 }
