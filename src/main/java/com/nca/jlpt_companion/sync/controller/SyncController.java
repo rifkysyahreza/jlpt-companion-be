@@ -1,6 +1,6 @@
 package com.nca.jlpt_companion.sync.controller;
 
-import com.nca.jlpt_companion.sync.dto.PullProgressResponse;
+import com.nca.jlpt_companion.sync.dto.PullProgressV1;
 import com.nca.jlpt_companion.sync.dto.UploadLogsRequest;
 import com.nca.jlpt_companion.sync.dto.UploadLogsResponse;
 import com.nca.jlpt_companion.sync.service.PullProgressService;
@@ -13,6 +13,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.UUID;
 
 @RestController
@@ -34,14 +36,19 @@ public class SyncController {
         return ResponseEntity.ok(resp);
     }
 
-    @Operation(summary = "Pull server→device changes (entitlements)")
+    @Operation(summary = "Pull server→device changes (entitlements/progress/content)")
     @GetMapping("/pull-progress")
-    public ResponseEntity<PullProgressResponse> pullProgress(
-            // DEV ONLY: pakai query param userId; nanti akan kita ambil dari JWT
+    public ResponseEntity<PullProgressV1> pullProgress(
+            // DEV ONLY: userId via query; later from JWT
             @RequestParam("userId") UUID userId,
-            @RequestParam(value = "since", required = false) OffsetDateTime since
+            @RequestParam(value = "since", required = false) OffsetDateTime since,
+            @RequestParam(value = "include", required = false, defaultValue = "entitlements,content")
+            String includeCsv,
+            @RequestParam(value = "activeOnly", required = false, defaultValue = "true")
+            boolean activeOnly
     ) {
-        var resp = pullProgressService.pull(userId, since);
+        var include = new HashSet<>(Arrays.asList(includeCsv.toLowerCase().split(",")));
+        var resp = pullProgressService.pull(userId, since, activeOnly, include);
         return ResponseEntity.ok(resp);
     }
 }
