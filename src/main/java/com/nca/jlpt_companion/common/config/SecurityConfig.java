@@ -13,8 +13,8 @@ public class SecurityConfig {
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable);
         http.authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/v1/hello", "/actuator/**").permitAll()
-                .anyRequest().permitAll() // later changed with jwt
+                .requestMatchers("/api/v1/hello", "/api/v1/content/**", "/actuator/**").permitAll()
+                .anyRequest().permitAll() // sementara; nanti ganti JWT
         );
         http.httpBasic(Customizer.withDefaults());
         return http.build();
