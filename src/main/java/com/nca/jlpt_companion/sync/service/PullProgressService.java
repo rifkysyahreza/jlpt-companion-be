@@ -25,10 +25,8 @@ public class PullProgressService {
     private final ContentRepo contentRepo;
     private final ObjectMapper om;
 
-    public PullProgressV1 pull(UUID userId,
-                               OffsetDateTime since,
-                               boolean activeOnly,
-                               Set<String> include) {
+    public PullProgressV1 pull(UUID userId, OffsetDateTime since, boolean activeOnly,
+                               Set<String> include, String domain, String level) {
         var now = OffsetDateTime.now();
 
         // ===== entitlements =====
@@ -71,13 +69,19 @@ public class PullProgressService {
             }
         }
 
-        // ===== content pointer (latest version) =====
+        // ===== content pointer (latest version, scoped) =====
+        // MVP: hardcode domain=JLPT & level=N5; later can be taken from user/app preferences
         PullProgressV1.ContentPointer contentPtr = null;
         if (include.contains("content")) {
-            long latest = contentRepo.findLatestVersion();
-            String sum = (latest > 0) ? contentRepo.findDeltaChecksum(latest, latest) : null;
-            Long size = (latest > 0) ? contentRepo.findDeltaSize(latest, latest) : 0L;
-            contentPtr = new PullProgressV1.ContentPointer(latest, sum, size);
+            int latestVer = contentRepo.findLatestVersionNumber(domain, level);
+            if (latestVer <= 0) {
+                contentPtr = new PullProgressV1.ContentPointer(0, null, 0L);
+            } else {
+                Long latestId = contentRepo.findLatestVersionId(domain, level);
+                String sum = contentRepo.findDeltaChecksum(latestId, latestId);
+                Long size  = contentRepo.findDeltaSize(latestId, latestId);
+                contentPtr = new PullProgressV1.ContentPointer(latestVer, sum, size);
+            }
         }
 
         return new PullProgressV1(

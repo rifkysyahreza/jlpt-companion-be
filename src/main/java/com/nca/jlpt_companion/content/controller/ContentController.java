@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Content", description = "Content version & delta")
+@Tag(name = "Content", description = "Content versioning and scoped download")
 @RestController
 @RequestMapping("/api/v1/content")
 @RequiredArgsConstructor
@@ -20,15 +20,22 @@ public class ContentController {
 
     private final ContentService contentService;
 
-    @Operation(summary = "Get latest content version")
+    @Operation(summary = "Get latest content version for a domain/level")
     @GetMapping("/version")
-    public ResponseEntity<VersionResponse> version() {
-        return ResponseEntity.ok(contentService.getLatestVersion());
+    public ResponseEntity<VersionResponse> version(
+            @RequestParam(defaultValue = "JLPT") String domain,
+            @RequestParam(required = false) String level  // null = domain-wide
+    ) {
+        return ResponseEntity.ok(contentService.getLatestVersion(domain, level));
     }
 
-    @Operation(summary = "Get content delta since a version")
-    @GetMapping("/delta")
-    public ResponseEntity<DeltaResponse> delta(@RequestParam(name = "since", defaultValue = "0") long since) {
-        return ResponseEntity.ok(contentService.getDelta(since));
+    @Operation(summary = "Download content delta or snapshot for a domain/level")
+    @GetMapping("/download")
+    public ResponseEntity<DeltaResponse> download(
+            @RequestParam(defaultValue = "JLPT") String domain,
+            @RequestParam(required = false) String level,
+            @RequestParam(name = "since", defaultValue = "0") int sinceVersion
+    ) {
+        return ResponseEntity.ok(contentService.getDelta(domain, level, sinceVersion));
     }
 }

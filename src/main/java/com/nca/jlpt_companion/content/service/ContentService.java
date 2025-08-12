@@ -21,54 +21,67 @@ public class ContentService {
     private final StringRedisTemplate redis;
     private final ObjectMapper om;
 
-    private static final String KEY_LATEST = "content:latest_version";
-    private static String dkey(long f, long t) { return "content:delta:%d:%d".formatted(f, t); }
+    private static String kLatest(String domain, String level){ return "content:%s:%s:latest".formatted(domain, level==null?"_":level); }
+    private static String kDelta(String domain, String level, int since, int to){ return "content:%s:%s:delta:%d:%d".formatted(domain, level==null?"_":level, since, to); }
 
-    public VersionResponse getLatestVersion() {
-        String cached = redis.opsForValue().get(KEY_LATEST);
-        long latest;
+    public VersionResponse getLatestVersion(String domain, String level) {
+        String cacheKey = kLatest(domain, level);
+        String cached = redis.opsForValue().get(cacheKey);
+
+        int latestVer;
         if (cached != null) {
-            latest = Long.parseLong(cached);
+            latestVer = Integer.parseInt(cached);
         } else {
-            latest = repo.findLatestVersion();
-            redis.opsForValue().set(KEY_LATEST, Long.toString(latest), Duration.ofMinutes(10));
+            latestVer = repo.findLatestVersionNumber(domain, level);
+            redis.opsForValue().set(cacheKey, Integer.toString(latestVer), Duration.ofMinutes(10));
         }
-        Long size = (latest > 0) ? repo.findDeltaSize(latest, latest) : 0L;
-        String checksum = (latest > 0) ? repo.findDeltaChecksum(latest, latest) : null;
-        return new VersionResponse(latest, checksum, size);
+
+        if (latestVer <= 0) {
+            return new VersionResponse(0, null, 0L);
+        }
+
+        Long latestId = repo.findLatestVersionId(domain, level);
+        Long size = repo.findDeltaSize(latestId, latestId);
+        String sum = repo.findDeltaChecksum(latestId, latestId);
+        return new VersionResponse(latestVer, sum, size);
     }
 
     @SuppressWarnings("unchecked")
-    public DeltaResponse getDelta(long since) {
-        long latest = repo.findLatestVersion();
-        if (since >= latest) {
-            return new DeltaResponse(since, latest, null, List.of(), List.of(), List.of(), List.of());
+    public DeltaResponse getDelta(String domain, String level, int since) {
+        int latestVer = repo.findLatestVersionNumber(domain, level);
+        if (since >= latestVer) {
+            return new DeltaResponse(since, latestVer, null, List.of(), List.of(), List.of(), List.of());
         }
+        Long latestId = repo.findLatestVersionId(domain, level);
+        Long fromId = (since > 0) ? repo.findVersionIdByScopeAndNumber(domain, level, since) : null;
 
-        String json = redis.opsForValue().get(dkey(since, latest));
+        // try since->latest; if absent, fall back to snapshot latest->latest
+        String key = kDelta(domain, level, since, latestVer);
+        String json = redis.opsForValue().get(key);
         if (json == null) {
-            json = repo.findDeltaPayload(since, latest);
+            if (fromId != null) {
+                json = repo.findDeltaPayload(fromId, latestId);
+            }
             if (json == null) {
-                // fallback to snapshot latest->latest
-                json = repo.findDeltaPayload(latest, latest);
+                json = repo.findDeltaPayload(latestId, latestId);
             }
-            if (json != null) {
-                redis.opsForValue().set(dkey(since, latest), json, Duration.ofHours(1));
-            }
+            if (json != null) redis.opsForValue().set(key, json, Duration.ofHours(1));
         }
-        if (json == null) throw new RuntimeException("Delta payload not found");
+        if (json == null) {
+            // no payload at all (empty scope)
+            return new DeltaResponse(since, latestVer, null, List.of(), List.of(), List.of(), List.of());
+        }
 
-        Map<String, Object> map;
-        try {
-            map = om.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            throw new RuntimeException("Invalid delta payload", e);
-        }
-        String checksum = repo.findDeltaChecksum(since, latest);
-        if (checksum == null) checksum = repo.findDeltaChecksum(latest, latest);
+        Map<String,Object> map;
+        try { map = om.readValue(json, new TypeReference<>() {}); }
+        catch (Exception e){ throw new RuntimeException("Invalid delta payload", e); }
+
+        String checksum = null;
+        if (fromId != null) checksum = repo.findDeltaChecksum(fromId, latestId);
+        if (checksum == null) checksum = repo.findDeltaChecksum(latestId, latestId);
 
         return new DeltaResponse(
-                since, latest, checksum,
+                since, latestVer, checksum,
                 (List<Object>) map.getOrDefault("decks", List.of()),
                 (List<Object>) map.getOrDefault("cards", List.of()),
                 (List<Object>) map.getOrDefault("passages", List.of()),

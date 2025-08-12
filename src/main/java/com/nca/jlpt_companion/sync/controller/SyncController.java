@@ -39,16 +39,15 @@ public class SyncController {
     @Operation(summary = "Pull server→device changes (entitlements/progress/content)")
     @GetMapping("/pull-progress")
     public ResponseEntity<PullProgressV1> pullProgress(
-            // DEV ONLY: userId via query; later from JWT
             @RequestParam("userId") UUID userId,
             @RequestParam(value = "since", required = false) OffsetDateTime since,
-            @RequestParam(value = "include", required = false, defaultValue = "entitlements,content")
-            String includeCsv,
-            @RequestParam(value = "activeOnly", required = false, defaultValue = "true")
-            boolean activeOnly
+            @RequestParam(value = "include", required = false, defaultValue = "entitlements,content") String includeCsv,
+            @RequestParam(value = "activeOnly", required = false, defaultValue = "true") boolean activeOnly,
+            @RequestParam(value = "domain", required = false, defaultValue = "JLPT") String domain,
+            @RequestParam(value = "level",  required = false, defaultValue = "N5") String level
     ) {
         var include = new HashSet<>(Arrays.asList(includeCsv.toLowerCase().split(",")));
-        var resp = pullProgressService.pull(userId, since, activeOnly, include);
+        var resp = pullProgressService.pull(userId, since, activeOnly, include, domain, level);
         return ResponseEntity.ok(resp);
     }
 }
