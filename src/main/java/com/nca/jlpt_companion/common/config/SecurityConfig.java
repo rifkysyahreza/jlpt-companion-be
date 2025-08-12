@@ -14,6 +14,7 @@ public class SecurityConfig {
         http.csrf(AbstractHttpConfigurer::disable);
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/hello", "/api/v1/content/**", "/actuator/**").permitAll()
+                .requestMatchers("/api/v1/sync/**").permitAll() // DEV ONLY
                 .anyRequest().permitAll() // sementara; nanti ganti JWT
         );
         http.httpBasic(Customizer.withDefaults());
