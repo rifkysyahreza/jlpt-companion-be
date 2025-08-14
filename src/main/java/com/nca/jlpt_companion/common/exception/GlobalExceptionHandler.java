@@ -88,4 +88,11 @@ public class GlobalExceptionHandler {
                 ApiError.of(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), req.getRequest().getRequestURI(), traceId())
         );
     }
+
+    @ExceptionHandler(AppExceptions.ForbiddenException.class)
+    public ResponseEntity<ApiError> handleForbidden(AppExceptions.ForbiddenException ex, ServletWebRequest req) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                ApiError.of(HttpStatus.FORBIDDEN, ex.getMessage(), req.getRequest().getRequestURI(), traceId())
+        );
+    }
 }

@@ -19,4 +19,10 @@ public final class AppExceptions {
         public AuthFailedException(String message) { super(message); }
         public AuthFailedException(String message, Throwable cause) { super(message, cause); }
     }
+
+    /** 403 Forbidden (contoh: device bukan milik user) */
+    public static class ForbiddenException extends RuntimeException {
+        public ForbiddenException(String message) { super(message); }
+        public ForbiddenException(String message, Throwable cause) { super(message, cause); }
+    }
 }

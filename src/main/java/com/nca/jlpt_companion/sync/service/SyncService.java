@@ -1,9 +1,11 @@
 package com.nca.jlpt_companion.sync.service;
 
+import com.nca.jlpt_companion.common.exception.AppExceptions;
 import com.nca.jlpt_companion.sync.dto.UploadLogsRequest;
 import com.nca.jlpt_companion.sync.dto.UploadLogsResponse;
 import com.nca.jlpt_companion.sync.model.ChangeLogEntity;
 import com.nca.jlpt_companion.sync.repo.ChangeLogRepo;
+import com.nca.jlpt_companion.users.repo.UserDeviceRepo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +20,7 @@ import java.util.UUID;
 public class SyncService {
 
     private final ChangeLogRepo changeLogRepo;
+    private final UserDeviceRepo userDeviceRepo;
 
     /** Guard untuk perbedaan waktu device vs server saat upload log. */
     private static final Duration MAX_SKEW = Duration.ofHours(48);
@@ -46,6 +49,9 @@ public class SyncService {
         if (req.deviceId() == null) {
             conflicts.add(new UploadLogsResponse.Conflict(-1, "device_id_missing"));
             return new UploadLogsResponse(false, 0, List.of(), conflicts);
+        }
+        if (!userDeviceRepo.existsByIdAndUserId(req.deviceId(), userId)) {
+            throw new AppExceptions.ForbiddenException("Device not registered for this user");
         }
 
         var now = OffsetDateTime.now();
