@@ -12,7 +12,7 @@ import java.util.UUID;
 
 @Getter
 @ToString
-@NoArgsConstructor(access = lombok.AccessLevel.PROTECTED)
+@NoArgsConstructor(access = lombok.AccessLevel.PROTECTED) // tetap protected untuk JPA
 @Entity
 @Table(name = "progress_snapshots")
 public class ProgressSnapshotEntity {
@@ -29,5 +29,24 @@ public class ProgressSnapshotEntity {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "stats", nullable = false, columnDefinition = "jsonb")
-    private String statsJson; // kita parse ringan di service
+    private String statsJson;
+
+    /** Ctor publik untuk pembuatan record baru dari service */
+    public ProgressSnapshotEntity(UUID id, UUID userId, LocalDate day, String statsJson) {
+        this.id = id;
+        this.userId = userId;
+        this.day = day;
+        this.statsJson = statsJson;
+    }
+
+    /** Factory convenience */
+    public static ProgressSnapshotEntity create(UUID userId, LocalDate day, String statsJson) {
+        return new ProgressSnapshotEntity(UUID.randomUUID(), userId, day, statsJson);
+    }
+
+    /** Mutator ringan untuk ganti stats */
+    public ProgressSnapshotEntity withStats(String newStatsJson) {
+        this.statsJson = newStatsJson;
+        return this;
+    }
 }

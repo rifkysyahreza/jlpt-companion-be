@@ -78,7 +78,8 @@ app:
     secret: "${JWT_SECRET:dev-secret-change-me}"   # ganti via ENV di prod
     access-exp-minutes: 30
     refresh-exp-days: 30
-
+  sync:
+    max-skew-hours: 72
 # =========================
 # DEV profile overrides
 # =========================
