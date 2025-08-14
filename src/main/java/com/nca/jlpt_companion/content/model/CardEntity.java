@@ -1,4 +1,4 @@
-package com.nca.jlpt_companion.sync.model;
+package com.nca.jlpt_companion.content.model;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.*;
