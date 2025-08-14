@@ -76,12 +76,13 @@ public class ContentService {
         try { map = om.readValue(json, new TypeReference<>() {}); }
         catch (Exception e){ throw new RuntimeException("Invalid delta payload", e); }
 
-        String checksum = null;
-        if (fromId != null) checksum = repo.findDeltaChecksum(fromId, latestId);
-        if (checksum == null) checksum = repo.findDeltaChecksum(latestId, latestId);
+        String checksum = (fromId != null) ? repo.findDeltaChecksum(fromId, latestId)
+                : repo.findDeltaChecksum(latestId, latestId);
+
+        int fromVersionForResponse = (fromId != null) ? since : latestVer;
 
         return new DeltaResponse(
-                since, latestVer, checksum,
+                fromVersionForResponse, latestVer, checksum,
                 (List<Object>) map.getOrDefault("decks", List.of()),
                 (List<Object>) map.getOrDefault("cards", List.of()),
                 (List<Object>) map.getOrDefault("passages", List.of()),
