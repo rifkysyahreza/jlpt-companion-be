@@ -1,6 +1,6 @@
 package com.nca.jlpt_companion.sync.controller;
 
-import com.nca.jlpt_companion.sync.dto.PullProgressV1;
+import com.nca.jlpt_companion.sync.dto.PullProgressResponse;
 import com.nca.jlpt_companion.sync.dto.UploadLogsRequest;
 import com.nca.jlpt_companion.sync.dto.UploadLogsResponse;
 import com.nca.jlpt_companion.sync.service.PullProgressService;
@@ -15,43 +15,74 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.List;
 import java.util.UUID;
 
+@Tag(name = "Sync")
 @RestController
-@RequestMapping("/api/v1/sync")
 @RequiredArgsConstructor
-@Tag(name = "Sync", description = "Offline-first synchronization")
+@RequestMapping("/api/v1/sync")
 public class SyncController {
 
     private final SyncService syncService;
     private final PullProgressService pullProgressService;
 
-    @Operation(summary = "Upload change logs (idempotent by per-item key)")
+    // =========================
+    // Upload batched logs
+    // =========================
     @PostMapping("/upload-logs")
+    @Operation(summary = "Upload batched logs (idempotent; per item & per batch header)")
     public ResponseEntity<UploadLogsResponse> uploadLogs(
             Authentication auth,
-            @RequestHeader(name = "Idempotency-Key", required = false) String batchIdempotencyKey,
-            @Valid @RequestBody UploadLogsRequest request
+            @RequestHeader(value = "Idempotency-Key", required = false) String batchIdempotencyKey,
+            @Valid @RequestBody UploadLogsRequest body
     ) {
         UUID userId = (UUID) auth.getPrincipal();
-        var resp = syncService.uploadLogs(userId, request, request.batchId(), batchIdempotencyKey);
-        return ResponseEntity.ok(resp);
+        String batchId = (body.batchId() == null || body.batchId().isBlank()) ? "auto" : body.batchId();
+        var res = syncService.uploadLogs(userId, body, batchId, batchIdempotencyKey);
+        return ResponseEntity.ok(res);
     }
 
-    @Operation(summary = "Pull server→device changes (entitlements/progress/content)")
+    // =========================
+    // Pull snapshot (entitlements / progress.daily / content pointer)
+    // =========================
     @GetMapping("/pull-progress")
-    public ResponseEntity<PullProgressV1> pullProgress(
+    @Operation(summary = "Pull snapshot: entitlements, 14-day progress window, and content pointer")
+    public ResponseEntity<PullProgressResponse> pullProgress(
             Authentication auth,
-            @RequestParam(value = "since", required = false) OffsetDateTime since,
-            @RequestParam(value = "include", required = false, defaultValue = "entitlements,content") String includeCsv,
-            @RequestParam(value = "activeOnly", required = false, defaultValue = "true") boolean activeOnly,
-            @RequestParam(value = "domain", required = false, defaultValue = "JLPT") String domain,
-            @RequestParam(value = "level",  required = false, defaultValue = "N5")   String level
+            @RequestParam(defaultValue = "JLPT") String domain,
+            @RequestParam(defaultValue = "N5") String level,
+            @RequestParam(required = false) String since,   // ISO-8601; optional. If null → snapshot 14 hari
+            // `days` disimpan untuk kompatibilitas, tapi diabaikan (window fixed 14)
+            @RequestParam(required = false) Integer days,
+            // default: sertakan semua blok agar Flutter langsung bisa render
+            @RequestParam(value = "include", required = false, defaultValue = "entitlements,progress,content") String includeCsv
     ) {
         UUID userId = (UUID) auth.getPrincipal();
-        var include = new HashSet<>(Arrays.asList(includeCsv.toLowerCase().split(",")));
-        var resp = pullProgressService.pull(userId, since, activeOnly, include, domain, level);
-        return ResponseEntity.ok(resp);
+        OffsetDateTime sinceTs = parseSince(since);
+        List<String> include = parseInclude(includeCsv);
+
+        var body = pullProgressService.pull(userId, domain, level, sinceTs, days, include);
+        return ResponseEntity.ok(body);
+    }
+
+    // =========================
+    // Helpers
+    // =========================
+    private OffsetDateTime parseSince(String s) {
+        if (s == null || s.isBlank()) return null;
+        try {
+            return OffsetDateTime.parse(s);
+        } catch (Exception ignored) {
+            return null; // invalid format → treat as snapshot
+        }
+    }
+
+    private List<String> parseInclude(String csv) {
+        if (csv == null || csv.isBlank()) return List.of();
+        return Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(p -> !p.isEmpty())
+                .toList();
     }
 }

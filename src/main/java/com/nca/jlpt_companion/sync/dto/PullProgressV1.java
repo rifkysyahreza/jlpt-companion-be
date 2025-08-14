@@ -47,4 +47,13 @@ public record PullProgressV1(
             String checksum,
             Long sizeHint
     ) {}
+
+    public record DailyItem(
+            java.time.LocalDate day,
+            int reviews,
+            int correct,
+            double accuracy,
+            int timeSec,
+            int newlyLearned
+    ) {}
 }

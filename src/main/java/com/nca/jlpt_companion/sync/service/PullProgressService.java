@@ -5,128 +5,123 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nca.jlpt_companion.content.repo.ContentRepo;
 import com.nca.jlpt_companion.progress.model.ProgressSnapshotEntity;
 import com.nca.jlpt_companion.progress.repo.ProgressSnapshotRepo;
+import com.nca.jlpt_companion.sync.dto.PullProgressResponse;
 import com.nca.jlpt_companion.sync.dto.PullProgressV1;
 import com.nca.jlpt_companion.users.model.UserEntitlementEntity;
 import com.nca.jlpt_companion.users.repo.UserEntitlementRepo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class PullProgressService {
 
-    private final UserEntitlementRepo entitlementRepo;
+    private static final int WINDOW_DAYS = 14; // jendela snapshot tetap 14 hari
+
     private final ProgressSnapshotRepo progressRepo;
+    private final UserEntitlementRepo entitlementRepo;
     private final ContentRepo contentRepo;
     private final ObjectMapper om;
 
-    public PullProgressV1 pull(UUID userId, OffsetDateTime since, boolean activeOnly,
-                               Set<String> include, String domain, String level) {
-        var now = OffsetDateTime.now();
+    /**
+     * Bangun snapshot pull-progress.
+     * @param sinceTs Jika null → snapshot 14 hari; jika ada → delta sejak tanggal tsb (berbasis hari).
+     * @param days    Diabaikan (kita pakai WINDOW_DAYS tetap 14) agar kontrak stabil untuk MVP.
+     * @param include Bagian yang ingin di-include: "entitlements", "progress", "content"; null = semua.
+     */
+    public PullProgressResponse pull(UUID userId,
+                                     String domain,
+                                     String level,
+                                     OffsetDateTime sinceTs,
+                                     Integer days,
+                                     List<String> include) {
 
-        // ===== entitlements =====
-        PullProgressV1.Entitlements entitlementsSection = null;
-        if (include.contains("entitlements")) {
-            if (since == null) {
-                var all = entitlementRepo.findByUserId(userId);
-                var items = all.stream()
-                        .filter(e -> !activeOnly || isActiveAt(e, now))
-                        .map(this::toSnapshotChange)
-                        .toList();
-                entitlementsSection = new PullProgressV1.Entitlements("snapshot", items);
-            } else {
-                var added = entitlementRepo.findByUserIdAndStartsAtAfter(userId, since);
-                var extended = entitlementRepo.findByUserIdAndEndsAtAfter(userId, since);
-                var combined = Stream.concat(added.stream(), extended.stream())
-                        .collect(Collectors.toMap(UserEntitlementEntity::getId, e -> e, (a, b) -> a))
-                        .values().stream()
-                        .filter(e -> !activeOnly || isActiveAt(e, now))
-                        .map(this::toUpsertChange)
-                        .toList();
-                entitlementsSection = new PullProgressV1.Entitlements("delta", combined);
+        var serverNow = OffsetDateTime.now();
+
+        // ===== entitlements (snapshot sederhana, aktif per serverNow) =====
+        PullProgressResponse.EntitlementsBlock entitlements = null;
+        if (include == null || include.contains("entitlements")) {
+            var activeEnts = entitlementRepo.findActiveForUser(userId, serverNow);
+            var items = new ArrayList<PullProgressResponse.EntitlementItem>();
+            for (UserEntitlementEntity e : activeEnts) {
+                items.add(new PullProgressResponse.EntitlementItem(
+                        "entitlement_snapshot",
+                        e.getStartsAt(),
+                        new PullProgressResponse.EntitlementPayload(
+                                e.getCode().name(),     // enum entitlement_code → string
+                                e.getStartsAt(),
+                                e.getEndsAt()
+                        )
+                ));
             }
+            entitlements = new PullProgressResponse.EntitlementsBlock("snapshot", items);
         }
 
-        // ===== progress snapshots =====
-        PullProgressV1.Progress progressSection = null;
-        if (include.contains("progress")) {
-            if (since == null) {
-                // ambil semua milik user (atau limit 30 terakhir supaya ringan)
-                var all = progressRepo.findAllByUser(userId);
-                var limited = all.stream().limit(30).toList(); // cap 30 hari terakhir (bisa diubah)
-                var daily = limited.stream().map(this::mapDaily).toList();
-                progressSection = new PullProgressV1.Progress("snapshot", daily);
-            } else {
-                var sinceDay = since.toLocalDate();
+        // ===== progress.daily (snapshot 14 hari ASC, atau delta sejak sinceTs) =====
+        PullProgressResponse.ProgressBlock progress = null;
+        if (include == null || include.contains("progress")) {
+            final List<PullProgressV1.DailyItem> daily;
+
+            if (sinceTs == null) {
+                // SNAPSHOT: 14 hari terakhir (inklusif), ordered ASC (repo sudah ASC)
+                LocalDate sinceDay = serverNow.toLocalDate().minusDays(WINDOW_DAYS - 1L);
                 var rows = progressRepo.findSince(userId, sinceDay);
-                var daily = rows.stream().map(this::mapDaily).toList();
-                progressSection = new PullProgressV1.Progress("delta", daily);
-            }
-        }
-
-        // ===== content pointer (latest version, scoped) =====
-        // MVP: hardcode domain=JLPT & level=N5; later can be taken from user/app preferences
-        PullProgressV1.ContentPointer contentPtr = null;
-        if (include.contains("content")) {
-            int latestVer = contentRepo.findLatestVersionNumber(domain, level);
-            if (latestVer <= 0) {
-                contentPtr = new PullProgressV1.ContentPointer(0, null, 0L);
+                daily = rows.stream().map(this::mapDaily).toList();
+                progress = new PullProgressResponse.ProgressBlock("snapshot", daily);
             } else {
-                Long latestId = contentRepo.findLatestVersionId(domain, level);
-                String sum = contentRepo.findDeltaChecksum(latestId, latestId);
-                Long size  = contentRepo.findDeltaSize(latestId, latestId);
-                contentPtr = new PullProgressV1.ContentPointer(latestVer, sum, size);
+                // DELTA: semua dari sejak hari sinceTs (inklusif), ordered ASC
+                LocalDate sinceDay = sinceTs.toLocalDate();
+                var rows = progressRepo.findSince(userId, sinceDay);
+                daily = rows.stream().map(this::mapDaily).toList();
+                progress = new PullProgressResponse.ProgressBlock("delta", daily);
             }
         }
 
-        return new PullProgressV1(
-                now,
-                now,     // untuk MVP kita pakai serverTime sebagai nextSince
-                entitlementsSection,
-                progressSection,
-                contentPtr
-        );
-    }
-
-    private boolean isActiveAt(UserEntitlementEntity e, OffsetDateTime at) {
-        return e.getEndsAt() == null || e.getEndsAt().isAfter(at);
-        // startsAt assumed <= now (grant masa depan jarang, bisa ditambah check jika perlu)
-    }
-
-    private PullProgressV1.EntitlementItem toSnapshotChange(UserEntitlementEntity e) {
-        return new PullProgressV1.EntitlementItem(
-                "entitlement_snapshot",
-                e.getStartsAt(),
-                new PullProgressV1.EntitlementPayload(e.getCode(), e.getStartsAt(), e.getEndsAt())
-        );
-    }
-
-    private PullProgressV1.EntitlementItem toUpsertChange(UserEntitlementEntity e) {
-        return new PullProgressV1.EntitlementItem(
-                "entitlement_upsert",
-                e.getStartsAt(),
-                new PullProgressV1.EntitlementPayload(e.getCode(), e.getStartsAt(), e.getEndsAt())
-        );
-    }
-
-    private PullProgressV1.DailyStat mapDaily(ProgressSnapshotEntity p) {
-        try {
-            JsonNode j = om.readTree(p.getStatsJson());
-            return new PullProgressV1.DailyStat(
-                    p.getDay().toString(),
-                    j.path("reviews").asInt(0),
-                    j.path("new").asInt(0),
-                    j.path("accuracy").asDouble(0.0),
-                    j.path("time_sec").asInt(0)
+        // ===== content pointer (latest version / checksum / size) =====
+        PullProgressResponse.ContentPointer content = null;
+        if (include == null || include.contains("content")) {
+            int latestVer = contentRepo.findLatestVersionNumber(domain, level);
+            Long latestId = contentRepo.findLatestVersionId(domain, level);
+            String checksum = (latestId == null) ? "sha256:none" : contentRepo.findDeltaChecksum(latestId, latestId);
+            Long size = (latestId == null) ? 0L : contentRepo.findDeltaSize(latestId, latestId);
+            content = new PullProgressResponse.ContentPointer(
+                    latestVer,
+                    checksum == null ? "sha256:none" : checksum,
+                    size == null ? 0L : size
             );
-        } catch (Exception ex) {
-            // fallback kalau parsing gagal
-            return new PullProgressV1.DailyStat(p.getDay().toString(), 0, 0, 0.0, 0);
         }
+
+        return new PullProgressResponse(
+                serverNow,
+                serverNow,            // nextSince = serverNow (incremental event belum diaktifkan)
+                entitlements,
+                progress,
+                content
+        );
+    }
+
+    private PullProgressV1.DailyItem mapDaily(ProgressSnapshotEntity e) {
+        JsonNode s = safeJson(e.getStatsJson());
+        return new PullProgressV1.DailyItem(
+                e.getDay(),
+                s.path("reviews").asInt(0),
+                s.path("correct").asInt(0),
+                s.path("accuracy").asDouble(0.0),
+                s.path("time_sec").asInt(0),
+                s.path("new").asInt(0)
+        );
+    }
+
+    private JsonNode safeJson(String s) {
+        try { return om.readTree(s == null ? "{}" : s); }
+        catch (Exception e) { return om.createObjectNode(); }
     }
 }

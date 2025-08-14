@@ -79,7 +79,8 @@ app:
     access-exp-minutes: 30
     refresh-exp-days: 30
   sync:
-    max-skew-hours: 72
+    max-skew-hours: 48
+    progress-window-days: 14
 # =========================
 # DEV profile overrides
 # =========================

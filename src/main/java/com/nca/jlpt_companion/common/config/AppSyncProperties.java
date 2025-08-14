@@ -1,6 +1,5 @@
 package com.nca.jlpt_companion.common.config;
 
-
 import lombok.Getter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -8,6 +7,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.sync")
 public class AppSyncProperties {
     private long maxSkewHours = 48;
+    private int progressWindowDays = 14;
 
     public void setMaxSkewHours(long v) { this.maxSkewHours = v; }
+
+    public void setProgressWindowDays(int v) { this.progressWindowDays = v; }
 }

@@ -2,11 +2,13 @@ package com.nca.jlpt_companion.content.model;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.*;
+import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.util.UUID;
 
+@Getter
 @Entity
 @Table(name = "cards")
 public class CardEntity {
@@ -27,14 +29,13 @@ public class CardEntity {
     @Column(name = "reading")
     private String reading;
 
-    @Column(name = "meaning_id")
-    private UUID meaningId;
+    @Column(name = "meaning_id", columnDefinition = "text", nullable = false)
+    private String meaningId;
 
     @JdbcTypeCode(SqlTypes.JSON)                // map ke jsonb
     @Column(name = "metadata", columnDefinition = "jsonb")
     private JsonNode metadata;
 
-    // NOTE: kolom di DB saat ini bernama 'verison_id' (typo).
     // Kita mapping ke nama itu dulu agar jalan, nanti kita perbaiki via migration.
     @Column(name = "version_id")
     private Long versionId;                     // mengacu ke content_versions.id (BIGINT)
@@ -48,18 +49,9 @@ public class CardEntity {
         this.type = type;
         this.headword = headword;
         this.reading = reading;
-        this.meaningId = meaningId;
+        this.meaningId = String.valueOf(meaningId);
         this.metadata = metadata;
         this.versionId = versionId;
     }
 
-    // Getters
-    public UUID getId() { return id; }
-    public UUID getDeckId() { return deckId; }
-    public String getType() { return type; }
-    public String getHeadword() { return headword; }
-    public String getReading() { return reading; }
-    public UUID getMeaningId() { return meaningId; }
-    public JsonNode getMetadata() { return metadata; }
-    public Long getVersionId() { return versionId; }
 }
